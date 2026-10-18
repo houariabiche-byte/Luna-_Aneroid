@@ -1,0 +1,65 @@
+name: Build Luna APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Extract Luna Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p unpacked
+          ARCHIVE=""
+          for f in Luna_Android_Luna_FinalBuild.zip Luna_AndroidIDE_Project_Updated.zip Luna_AndroidIDE_Ready.zip Luna_AndroidIDE_Project.zip Luna-Android-Source.zip; do
+            if [ -f "$f" ]; then ARCHIVE="$f"; break; fi
+          done
+          if [ -z "$ARCHIVE" ]; then echo 'No Luna project ZIP found in repository.'; exit 1; fi
+          unzip -q "$ARCHIVE" -d unpacked
+          SETTINGS=$(find unpacked -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)
+          if [ -z "$SETTINGS" ]; then echo 'The ZIP does not contain settings.gradle.'; exit 1; fi
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found project: $PROJECT_DIR"
+
+      - name: Install Android platform and build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle --no-daemon assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Luna-debug-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
